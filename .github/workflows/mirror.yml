@@ -186,8 +186,10 @@ jobs:
       # Cryptographic, verifiable proof that these exact binaries were built by
       # this workflow from this commit (SLSA provenance via Sigstore). Verify with:
       #   gh attestation verify <binary> --repo chodeus/ffmpeg-static
+      # Runs on every build (not gated on publish): the from-source builds are
+      # reproducible, so a rebuild is usually a no-change skip — but we still want
+      # the binaries currently in the release to carry a fresh attestation.
       - name: Attest build provenance
-        if: steps.pub.outputs.published == 'true'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
