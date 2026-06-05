@@ -1,38 +1,34 @@
 # NOTICE — FFmpeg redistribution
 
-The release binaries published by this repository are **unmodified** FFmpeg
-executables produced by the FFmpeg-project-recommended builder
-[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), configured with
-`--enable-gpl`. They are therefore licensed under the **GNU General Public
-License, version 3** (see [LICENSE](LICENSE)).
+This repository publishes static FFmpeg binaries from two pipelines with two
+licenses.
 
-## Corresponding source (GPLv3 §6)
+## Linux binaries (`*-linux64`, `*-linuxarm64`) — LGPL-3.0-or-later
 
-These are static builds of FFmpeg. The complete corresponding source is:
+Compiled **from source** by [`linux/Dockerfile`](linux/Dockerfile) in this
+repository — no third-party binary is involved. FFmpeg is built `--disable-gpl`
+(no GPL components, no x264/x265) with `--enable-version3`, linking only
+LGPL/BSD audio libraries, so the result is **LGPL-3.0-or-later**.
 
-- **FFmpeg source**, at the git tag matching the version in each release
-  (e.g. release `n8.1.1` → FFmpeg tag `n8.1.1`):
-  - https://github.com/FFmpeg/FFmpeg (tag `n<version>`)
-  - https://git.ffmpeg.org/ffmpeg.git
-- **Build scripts / configuration** used to compile these binaries:
-  - https://github.com/BtbN/FFmpeg-Builds
+**Corresponding source (LGPLv3):**
+- **FFmpeg** at the release tag built (e.g. `n8.1.1`):
+  https://github.com/FFmpeg/FFmpeg
+- **Audio libraries**, at the versions pinned in `linux/Dockerfile`:
+  libmp3lame (LGPL), libogg + libvorbis (BSD), libopus (BSD),
+  opencore-amr (Apache-2.0) — each from its official upstream.
+- **The exact build recipe** is `linux/Dockerfile` in this repository, with all
+  versions and SHA-256 checksums pinned inline.
 
-We redistribute the binaries unmodified. To obtain the exact source for any
-binary here, check out the FFmpeg tag equal to that release's version together
-with the BtbN build scripts as of the mirror date noted in the release body.
+## Windows binaries (`*-win64.exe`, `*-winarm64.exe`) — GPL-3.0
 
-## What this repository adds
+Mirrored **unmodified** from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)
+(`--enable-gpl`), verified against BtbN's published `checksums.sha256`.
 
-We do not modify the binaries. The mirror workflow only:
+**Corresponding source (GPLv3):**
+- **FFmpeg** at the matching release tag: https://github.com/FFmpeg/FFmpeg
+- **BtbN build scripts**: https://github.com/BtbN/FFmpeg-Builds
 
-1. Downloads BtbN's static GPL builds and **verifies them against BtbN's own
-   published `checksums.sha256`**.
-2. Repackages the `ffmpeg` / `ffprobe` executables as raw per-platform assets
-   (no `.tar.xz` / `.zip` wrapper — so consumers need no archive handling).
-3. Publishes **our own `SHA256SUMS`** for downstream verification.
-
-We never mirror `--enable-nonfree` builds (those are not redistributable); only
-the `-gpl` static builds are used.
+We never mirror `--enable-nonfree` builds (those are not redistributable).
 
 FFmpeg is a trademark of Fabrice Bellard. This project is not affiliated with
 the FFmpeg project or with BtbN.

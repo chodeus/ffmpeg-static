@@ -1,146 +1,171 @@
-name: mirror
+name: build
 
-# Mirror BtbN's FFmpeg-project-recommended static GPL builds into raw,
-# checksum-verified per-platform binaries that sleezer / beatscheck consume.
+# Produce static FFmpeg binaries for the latest stable FFmpeg release and
+# publish them as a GitHub release. Linux binaries are compiled fully-static
+# from pinned upstream source (so they run on musl/Alpine AND glibc); Windows
+# binaries are mirrored from the FFmpeg-project-recommended BtbN builds.
 #
-# Runs daily and self-skips when nothing changed (no new release is published
-# unless the resulting SHA256SUMS differs from the existing one).
+# The FFmpeg version is auto-detected from the official repo's release tags, so
+# new patch, minor AND major releases are built automatically — no edits needed.
+# Runs daily and self-skips when the resulting SHA256SUMS is unchanged.
 
 on:
   schedule:
-    - cron: '17 5 * * *'   # daily; self-skips when BtbN hasn't changed
+    - cron: '17 5 * * *'   # daily; self-skips when nothing changed
   workflow_dispatch:
     inputs:
-      branch:
-        description: 'BtbN release branch to track (e.g. n8.1, n8.2). Patch updates within a branch are picked up automatically; bump this only for a new minor/major.'
-        default: 'n8.1'
-        required: true
+      ffmpeg_tag:
+        description: 'Optional: pin an FFmpeg release tag (e.g. n8.1.1). Leave blank to auto-detect the newest stable release.'
+        default: ''
+        required: false
 
 permissions:
   contents: write
 
 jobs:
-  mirror:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      ffmpeg_tag: ${{ steps.v.outputs.ffmpeg_tag }}
+      version: ${{ steps.v.outputs.version }}
+      btbn_branch: ${{ steps.v.outputs.btbn_branch }}
     steps:
-      - name: Resolve branch pin
-        id: pin
-        run: |
-          BRANCH="${{ github.event.inputs.branch || 'n8.1' }}"
-          echo "branch=$BRANCH"          >> "$GITHUB_OUTPUT"
-          echo "verlabel=${BRANCH#n}"    >> "$GITHUB_OUTPUT"
-
-      - name: Download, verify and extract BtbN static GPL builds
-        id: build
+      - name: Detect latest stable FFmpeg release
+        id: v
         env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ steps.pin.outputs.branch }}
-          VL: ${{ steps.pin.outputs.verlabel }}
+          INPUT_TAG: ${{ github.event.inputs.ffmpeg_tag }}
         run: |
           set -euo pipefail
-          mkdir -p work out
-          cd work
+          TAG="${INPUT_TAG:-}"
+          if [ -z "$TAG" ]; then
+            # Highest nX.Y[.Z] release tag from the official FFmpeg repo. Picks up
+            # new patch/minor/major releases automatically; ignores -dev/-rc tags.
+            VER=$(git ls-remote --tags --refs https://github.com/FFmpeg/FFmpeg.git \
+              | grep -oE 'refs/tags/n[0-9]+\.[0-9]+(\.[0-9]+)?$' \
+              | sed 's#refs/tags/n##' \
+              | sort -V | tail -1)
+            TAG="n${VER}"
+          fi
+          VERSION="${TAG#n}"
+          BTBN_BRANCH="n$(echo "$VERSION" | cut -d. -f1-2)"
+          echo "ffmpeg_tag=$TAG"          >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"         >> "$GITHUB_OUTPUT"
+          echo "btbn_branch=$BTBN_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Resolved FFmpeg $VERSION (tag $TAG; BtbN Windows branch $BTBN_BRANCH)"
 
-          # BtbN publishes one checksums.sha256 covering every asset in its
-          # rolling 'latest' release. We verify against it (BtbN's own checksum),
-          # then generate our own SHA256SUMS over the republished binaries.
+  linux:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: linux64,    runner: ubuntu-24.04 }
+          - { arch: linuxarm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + self-test static ffmpeg (${{ matrix.arch }})
+        env:
+          FFMPEG_TAG: ${{ needs.resolve.outputs.ffmpeg_tag }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          # The 'test' stage compiles everything and, on a clean Alpine image,
+          # asserts the binary is statically linked and encodes/decodes on musl.
+          # Building it here is the gate; a failure fails the job.
+          docker buildx build --target test --load \
+            --build-arg FFMPEG_TAG="${FFMPEG_TAG}" \
+            -t "ffstatic:${ARCH}" \
+            -f linux/Dockerfile linux/
+          cid=$(docker create "ffstatic:${ARCH}")
+          docker cp "$cid":/usr/local/bin/ffmpeg  "ffmpeg-${ARCH}"
+          docker cp "$cid":/usr/local/bin/ffprobe "ffprobe-${ARCH}"
+          docker rm "$cid" >/dev/null
+          file "ffmpeg-${ARCH}" | grep -q "statically linked" \
+            || { echo "not statically linked"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.arch }}
+          path: |
+            ffmpeg-${{ matrix.arch }}
+            ffprobe-${{ matrix.arch }}
+          if-no-files-found: error
+
+  windows:
+    needs: resolve
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ needs.resolve.outputs.btbn_branch }}
+    steps:
+      - name: Mirror BtbN Windows static GPL builds
+        run: |
+          set -euo pipefail
+          VL="${BRANCH#n}"
+          mkdir -p work out && cd work
           gh release download latest -R BtbN/FFmpeg-Builds -p checksums.sha256 --clobber
-
-          # plat | archive ext | exe suffix ('-' means none)
-          PLATFORMS=(
-            "linux64    tar.xz -"
-            "linuxarm64 tar.xz -"
-            "win64      zip    .exe"
-            "winarm64   zip    .exe"
-          )
-
-          for entry in "${PLATFORMS[@]}"; do
-            # shellcheck disable=SC2086
-            set -- $entry
-            plat="$1"; ext="$2"; sfx="$3"
-            [ "$sfx" = "-" ] && sfx=""
-            asset="ffmpeg-${BRANCH}-latest-${plat}-gpl-${VL}.${ext}"
+          for plat in win64 winarm64; do
+            asset="ffmpeg-${BRANCH}-latest-${plat}-gpl-${VL}.zip"
             echo "::group::${plat} (${asset})"
-
             gh release download latest -R BtbN/FFmpeg-Builds -p "$asset" --clobber
-
-            # Verify BtbN's published checksum for this asset. --ignore-missing
-            # lets us check just the files we've pulled out of the 49-asset list.
             sha256sum --ignore-missing -c checksums.sha256 > verify.log 2>&1 || true
-            grep -F "${asset}: OK" verify.log || {
-              echo "Checksum verification FAILED for ${asset}"; cat verify.log; exit 1; }
-
-            # Extract, then DISCOVER the binaries by name rather than assuming
-            # BtbN's internal folder layout.
-            rm -rf "x_${plat}"; mkdir "x_${plat}"
-            case "$ext" in
-              tar.xz) tar -xJf "$asset" -C "x_${plat}" ;;
-              zip)    unzip -q "$asset" -d "x_${plat}" ;;
-            esac
-
-            ffmpeg_bin=$(find "x_${plat}" -type f -name "ffmpeg${sfx}"  | head -1)
-            ffprobe_bin=$(find "x_${plat}" -type f -name "ffprobe${sfx}" | head -1)
-            if [ -z "$ffmpeg_bin" ] || [ -z "$ffprobe_bin" ]; then
-              echo "Could not locate ffmpeg/ffprobe in ${asset}"; exit 1
-            fi
-
-            cp "$ffmpeg_bin"  "../out/ffmpeg-${plat}${sfx}"
-            cp "$ffprobe_bin" "../out/ffprobe-${plat}${sfx}"
-            chmod +x "../out/ffmpeg-${plat}${sfx}" "../out/ffprobe-${plat}${sfx}"
+            grep -F "${asset}: OK" verify.log || { echo "checksum FAILED for ${asset}"; cat verify.log; exit 1; }
+            rm -rf "x_${plat}"; mkdir "x_${plat}"; unzip -q "$asset" -d "x_${plat}"
+            ff=$(find "x_${plat}" -type f -name ffmpeg.exe  | head -1)
+            fp=$(find "x_${plat}" -type f -name ffprobe.exe | head -1)
+            [ -n "$ff" ] && [ -n "$fp" ] || { echo "binaries not found in ${asset}"; exit 1; }
+            cp "$ff" "../out/ffmpeg-${plat}.exe"
+            cp "$fp" "../out/ffprobe-${plat}.exe"
             echo "::endgroup::"
           done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-windows
+          path: out/*
+          if-no-files-found: error
 
-          cd ../out
-          # Detect the real version from the x86-64 binary (static — runs here).
-          VERSION=$(./ffmpeg-linux64 -hide_banner -version | head -1 \
-            | grep -oE '[0-9]+(\.[0-9]+){1,2}' | head -1)
-          if [ -z "$VERSION" ]; then echo "Could not detect ffmpeg version"; exit 1; fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-          sha256sum ffmpeg-* ffprobe-* > SHA256SUMS
-          echo "Detected FFmpeg ${VERSION}"
-          cat SHA256SUMS
-
-      - name: Write release notes
-        env:
-          VERSION: ${{ steps.build.outputs.version }}
-          BRANCH: ${{ steps.pin.outputs.branch }}
-        run: |
-          {
-            echo "Static FFmpeg **${VERSION}** (GPLv3), mirrored from the"
-            echo "FFmpeg-project-recommended [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)"
-            echo "\`${BRANCH}\` static builds and re-verified with our own \`SHA256SUMS\`."
-            echo
-            echo "Raw \`ffmpeg\` / \`ffprobe\` binaries for linux64, linuxarm64, win64, winarm64."
-            echo "Provenance and GPL corresponding-source: see [NOTICE.md](https://github.com/chodeus/ffmpeg-static/blob/main/NOTICE.md)."
-            echo
-            echo "_Mirrored $(date -u '+%Y-%m-%d %H:%M UTC') from BtbN \`latest\`._"
-          } > out/RELEASE_NOTES.md
-
-      - name: Publish or update release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # Target our own repo without needing actions/checkout (gh honours GH_REPO).
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ steps.build.outputs.version }}
+  release:
+    needs: [resolve, linux, windows]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble, checksum and publish
         run: |
           set -euo pipefail
-          TAG="n${VERSION}"
+          mkdir -p out
+          find artifacts -type f \( -name 'ffmpeg-*' -o -name 'ffprobe-*' \) -exec cp {} out/ \;
           cd out
+          chmod +x ffmpeg-linux* ffprobe-linux* 2>/dev/null || true
+          sha256sum ffmpeg-* ffprobe-* > SHA256SUMS
+          echo "FFmpeg ${VERSION}"; cat SHA256SUMS
+
+          {
+            echo "Static FFmpeg **${VERSION}**."
+            echo
+            echo "- **Linux** (\`linux64\`, \`linuxarm64\`): compiled fully-static from pinned"
+            echo "  upstream source (runs on musl/Alpine and glibc). Audio-focused, **LGPL-3.0**."
+            echo "- **Windows** (\`win64\`, \`winarm64\`): mirrored from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), **GPL-3.0**."
+            echo
+            echo "Verify with \`SHA256SUMS\`. Provenance + corresponding source: see [NOTICE.md](https://github.com/chodeus/ffmpeg-static/blob/main/NOTICE.md)."
+          } > RELEASE_NOTES.md
+
+          TAG="n${VERSION}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            # Release for this version already exists. Only update if BtbN
-            # rebuilt the same version with different bytes (e.g. a dependency
-            # security patch) — i.e. our SHA256SUMS changed.
             gh release download "$TAG" -p SHA256SUMS -O old_SHA256SUMS --clobber || true
             if [ -f old_SHA256SUMS ] && cmp -s old_SHA256SUMS SHA256SUMS; then
-              echo "No change for ${TAG} — skipping publish."
+              echo "No change for ${TAG} — skipping."
               exit 0
             fi
-            echo "Updating existing release ${TAG} (BtbN rebuilt the same version)."
             gh release upload "$TAG" ffmpeg-* ffprobe-* SHA256SUMS --clobber
           else
             gh release create "$TAG" ffmpeg-* ffprobe-* SHA256SUMS \
-              --title "FFmpeg ${VERSION} (static, GPL)" \
+              --title "FFmpeg ${VERSION} (static)" \
               --notes-file RELEASE_NOTES.md \
               --latest
           fi
