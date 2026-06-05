@@ -1,0 +1,3 @@
+# CI scratch dirs (never committed; produced only inside the mirror workflow)
+work/
+out/

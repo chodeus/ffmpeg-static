@@ -1,0 +1,144 @@
+name: mirror
+
+# Mirror BtbN's FFmpeg-project-recommended static GPL builds into raw,
+# checksum-verified per-platform binaries that sleezer / beatscheck consume.
+#
+# Runs daily and self-skips when nothing changed (no new release is published
+# unless the resulting SHA256SUMS differs from the existing one).
+
+on:
+  schedule:
+    - cron: '17 5 * * *'   # daily; self-skips when BtbN hasn't changed
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'BtbN release branch to track (e.g. n8.1, n8.2). Patch updates within a branch are picked up automatically; bump this only for a new minor/major.'
+        default: 'n8.1'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve branch pin
+        id: pin
+        run: |
+          BRANCH="${{ github.event.inputs.branch || 'n8.1' }}"
+          echo "branch=$BRANCH"          >> "$GITHUB_OUTPUT"
+          echo "verlabel=${BRANCH#n}"    >> "$GITHUB_OUTPUT"
+
+      - name: Download, verify and extract BtbN static GPL builds
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.pin.outputs.branch }}
+          VL: ${{ steps.pin.outputs.verlabel }}
+        run: |
+          set -euo pipefail
+          mkdir -p work out
+          cd work
+
+          # BtbN publishes one checksums.sha256 covering every asset in its
+          # rolling 'latest' release. We verify against it (BtbN's own checksum),
+          # then generate our own SHA256SUMS over the republished binaries.
+          gh release download latest -R BtbN/FFmpeg-Builds -p checksums.sha256 --clobber
+
+          # plat | archive ext | exe suffix ('-' means none)
+          PLATFORMS=(
+            "linux64    tar.xz -"
+            "linuxarm64 tar.xz -"
+            "win64      zip    .exe"
+            "winarm64   zip    .exe"
+          )
+
+          for entry in "${PLATFORMS[@]}"; do
+            # shellcheck disable=SC2086
+            set -- $entry
+            plat="$1"; ext="$2"; sfx="$3"
+            [ "$sfx" = "-" ] && sfx=""
+            asset="ffmpeg-${BRANCH}-latest-${plat}-gpl-${VL}.${ext}"
+            echo "::group::${plat} (${asset})"
+
+            gh release download latest -R BtbN/FFmpeg-Builds -p "$asset" --clobber
+
+            # Verify BtbN's published checksum for this asset. --ignore-missing
+            # lets us check just the files we've pulled out of the 49-asset list.
+            sha256sum --ignore-missing -c checksums.sha256 > verify.log 2>&1 || true
+            grep -F "${asset}: OK" verify.log || {
+              echo "Checksum verification FAILED for ${asset}"; cat verify.log; exit 1; }
+
+            # Extract, then DISCOVER the binaries by name rather than assuming
+            # BtbN's internal folder layout.
+            rm -rf "x_${plat}"; mkdir "x_${plat}"
+            case "$ext" in
+              tar.xz) tar -xJf "$asset" -C "x_${plat}" ;;
+              zip)    unzip -q "$asset" -d "x_${plat}" ;;
+            esac
+
+            ffmpeg_bin=$(find "x_${plat}" -type f -name "ffmpeg${sfx}"  | head -1)
+            ffprobe_bin=$(find "x_${plat}" -type f -name "ffprobe${sfx}" | head -1)
+            if [ -z "$ffmpeg_bin" ] || [ -z "$ffprobe_bin" ]; then
+              echo "Could not locate ffmpeg/ffprobe in ${asset}"; exit 1
+            fi
+
+            cp "$ffmpeg_bin"  "../out/ffmpeg-${plat}${sfx}"
+            cp "$ffprobe_bin" "../out/ffprobe-${plat}${sfx}"
+            chmod +x "../out/ffmpeg-${plat}${sfx}" "../out/ffprobe-${plat}${sfx}"
+            echo "::endgroup::"
+          done
+
+          cd ../out
+          # Detect the real version from the x86-64 binary (static — runs here).
+          VERSION=$(./ffmpeg-linux64 -hide_banner -version | head -1 \
+            | grep -oE '[0-9]+(\.[0-9]+){1,2}' | head -1)
+          if [ -z "$VERSION" ]; then echo "Could not detect ffmpeg version"; exit 1; fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          sha256sum ffmpeg-* ffprobe-* > SHA256SUMS
+          echo "Detected FFmpeg ${VERSION}"
+          cat SHA256SUMS
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          BRANCH: ${{ steps.pin.outputs.branch }}
+        run: |
+          {
+            echo "Static FFmpeg **${VERSION}** (GPLv3), mirrored from the"
+            echo "FFmpeg-project-recommended [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)"
+            echo "\`${BRANCH}\` static builds and re-verified with our own \`SHA256SUMS\`."
+            echo
+            echo "Raw \`ffmpeg\` / \`ffprobe\` binaries for linux64, linuxarm64, win64, winarm64."
+            echo "Provenance and GPL corresponding-source: see [NOTICE.md](https://github.com/chodeus/ffmpeg-static/blob/main/NOTICE.md)."
+            echo
+            echo "_Mirrored $(date -u '+%Y-%m-%d %H:%M UTC') from BtbN \`latest\`._"
+          } > out/RELEASE_NOTES.md
+
+      - name: Publish or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="n${VERSION}"
+          cd out
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release for this version already exists. Only update if BtbN
+            # rebuilt the same version with different bytes (e.g. a dependency
+            # security patch) — i.e. our SHA256SUMS changed.
+            gh release download "$TAG" -p SHA256SUMS -O old_SHA256SUMS --clobber || true
+            if [ -f old_SHA256SUMS ] && cmp -s old_SHA256SUMS SHA256SUMS; then
+              echo "No change for ${TAG} — skipping publish."
+              exit 0
+            fi
+            echo "Updating existing release ${TAG} (BtbN rebuilt the same version)."
+            gh release upload "$TAG" ffmpeg-* ffprobe-* SHA256SUMS --clobber
+          else
+            gh release create "$TAG" ffmpeg-* ffprobe-* SHA256SUMS \
+              --title "FFmpeg ${VERSION} (static, GPL)" \
+              --notes-file RELEASE_NOTES.md \
+              --latest
+          fi
