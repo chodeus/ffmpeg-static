@@ -9,8 +9,9 @@
 # LGPL: only LGPL/BSD audio libraries are linked (no --enable-gpl, no x264/x265),
 # so the result is LGPL-3.0-or-later.
 
-ARG ALPINE_VERSION=3.21
-FROM alpine:${ALPINE_VERSION} AS build
+# Pinned by digest (multi-arch manifest) so a moved 'alpine:3.21' tag can't
+# inject anything. Renovate keeps the digest current.
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS build
 
 # Pinned upstream versions.
 ARG FFMPEG_TAG=n8.1.1
@@ -93,7 +94,7 @@ RUN git clone --depth 1 --branch "${FFMPEG_TAG}" https://github.com/FFmpeg/FFmpe
 
 # --- Self-test on a CLEAN Alpine (musl, no build deps): proves the binary is
 #     fully static and actually runs with nothing else installed. ---
-FROM alpine:${ALPINE_VERSION} AS test
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS test
 COPY --from=build /opt/ffbuild/bin/ffmpeg /opt/ffbuild/bin/ffprobe /usr/local/bin/
 RUN set -eux; \
     file=$(command -v file || true); \

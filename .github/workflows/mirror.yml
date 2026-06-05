@@ -19,8 +19,9 @@ on:
         default: ''
         required: false
 
+# Least privilege: read-only by default; only the release job gets write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   resolve:
@@ -63,7 +64,7 @@ jobs:
           - { arch: linuxarm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build + self-test static ffmpeg (${{ matrix.arch }})
         env:
           FFMPEG_TAG: ${{ needs.resolve.outputs.ffmpeg_tag }}
@@ -83,7 +84,7 @@ jobs:
           docker rm "$cid" >/dev/null
           file "ffmpeg-${ARCH}" | grep -q "statically linked" \
             || { echo "not statically linked"; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bin-${{ matrix.arch }}
           path: |
@@ -118,7 +119,7 @@ jobs:
             cp "$fp" "../out/ffprobe-${plat}.exe"
             echo "::endgroup::"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bin-windows
           path: out/*
@@ -127,15 +128,20 @@ jobs:
   release:
     needs: [resolve, linux, windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create / edit the release
+      id-token: write       # OIDC token for provenance signing
+      attestations: write   # write the build-provenance attestation
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.resolve.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
       - name: Assemble, checksum and publish
+        id: pub
         run: |
           set -euo pipefail
           mkdir -p out
@@ -160,6 +166,7 @@ jobs:
             gh release download "$TAG" -p SHA256SUMS -O old_SHA256SUMS --clobber || true
             if [ -f old_SHA256SUMS ] && cmp -s old_SHA256SUMS SHA256SUMS; then
               echo "No change for ${TAG} — skipping."
+              echo "published=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             gh release upload "$TAG" ffmpeg-* ffprobe-* SHA256SUMS --clobber
@@ -174,3 +181,15 @@ jobs:
               --notes-file RELEASE_NOTES.md \
               --latest
           fi
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      # Cryptographic, verifiable proof that these exact binaries were built by
+      # this workflow from this commit (SLSA provenance via Sigstore). Verify with:
+      #   gh attestation verify <binary> --repo chodeus/ffmpeg-static
+      - name: Attest build provenance
+        if: steps.pub.outputs.published == 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            out/ffmpeg-*
+            out/ffprobe-*
