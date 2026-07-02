@@ -24,7 +24,9 @@ jobs:
         id: install
         shell: bash
         run: |
-          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash)
+          # download-actionlint.bash pinned to the rhysd/actionlint v1.7.12 commit
+          # (immutable ref) so a re-pointed tag can't inject code into CI.
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash)
           echo "exe=$PWD/actionlint" >> "$GITHUB_OUTPUT"
 
       - name: Run actionlint

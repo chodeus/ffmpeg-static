@@ -14,7 +14,11 @@
 FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS build
 
 # Pinned upstream versions.
-ARG FFMPEG_TAG=n8.1.1
+ARG FFMPEG_TAG=n8.1.2
+# Commit the tag must resolve to — an immutable pin against a moved/re-pointed
+# upstream tag. Empty skips the check: CI's resolve job auto-detects newer tags
+# and passes only FFMPEG_TAG, so this default guards direct `docker build` here.
+ARG FFMPEG_COMMIT=38b88335f99e76ed89ff3c93f877fdefce736c13
 ARG LAME_VERSION=3.100
 ARG OGG_VERSION=1.3.5
 ARG VORBIS_VERSION=1.3.7
@@ -77,6 +81,11 @@ RUN curl -fsSL "https://downloads.sourceforge.net/opencore-amr/opencore-amr-${OP
 # --- FFmpeg (LGPL) — pinned release tag from the official repo ---
 RUN git clone --depth 1 --branch "${FFMPEG_TAG}" https://github.com/FFmpeg/FFmpeg.git ffmpeg \
  && cd ffmpeg \
+ && if [ -n "${FFMPEG_COMMIT}" ]; then \
+      got="$(git rev-parse HEAD)"; \
+      [ "$got" = "${FFMPEG_COMMIT}" ] \
+        || { echo "FFmpeg tag ${FFMPEG_TAG} resolved to $got, expected ${FFMPEG_COMMIT}" >&2; exit 1; }; \
+    fi \
  && ./configure \
       --prefix="${PREFIX}" \
       --pkg-config-flags=--static \
