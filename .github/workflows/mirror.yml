@@ -125,6 +125,17 @@ jobs:
             dyn=$(readelf -dW "$b")
             case "$dyn" in *NEEDED*) echo "$b has dynamic dependencies"; exit 1;; esac
           done
+          # The Alpine test stage can only prove the musl half of the portability
+          # claim in linux/Dockerfile's header. The runner is glibc, so exercise
+          # the binary here for the other half — an encode/decode round trip is
+          # enough, since codec coverage is already proven on musl and what is in
+          # question is only whether it loads and runs against a different libc.
+          chmod +x "ffmpeg-${ARCH}" "ffprobe-${ARCH}"
+          ./"ffprobe-${ARCH}" -hide_banner -version | head -1
+          ./"ffmpeg-${ARCH}" -hide_banner -f lavfi -i "sine=frequency=440:duration=1" \
+            -c:a libopus /tmp/glibc.opus -y >/dev/null 2>&1
+          ./"ffmpeg-${ARCH}" -v error -xerror -nostdin -i /tmp/glibc.opus -map 0:a -f null -
+          echo "RUNS-ON-GLIBC OK (${ARCH})"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bin-${{ matrix.arch }}
