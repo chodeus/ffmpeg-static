@@ -107,11 +107,20 @@ RUN git clone --depth 1 --branch "${FFMPEG_TAG}" https://github.com/FFmpeg/FFmpe
 #     fully static and actually runs with nothing else installed. ---
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS test
 COPY --from=build /opt/ffbuild/bin/ffmpeg /opt/ffbuild/bin/ffprobe /usr/local/bin/
+# Portability is asserted structurally rather than through file(1)'s wording: a
+# binary that needs no loader has no INTERP segment and no NEEDED entries. A
+# static-pie build keeps a PT_DYNAMIC segment to relocate itself, so NEEDED — not
+# the mere presence of a dynamic section — is what separates it from a dynamic
+# build. Capturing readelf's output means a readelf failure aborts under set -e
+# instead of reading as "nothing found, must be static".
 RUN set -eux; \
-    file=$(command -v file || true); \
-    apk add --no-cache file >/dev/null; \
-    file /usr/local/bin/ffmpeg | grep -q "statically linked" \
-      || { echo "NOT statically linked!"; file /usr/local/bin/ffmpeg; exit 1; }; \
+    apk add --no-cache binutils >/dev/null; \
+    for b in /usr/local/bin/ffmpeg /usr/local/bin/ffprobe; do \
+      hdr=$(readelf -lW "$b"); \
+      case "$hdr" in *INTERP*) echo "$b needs a dynamic loader"; exit 1;; esac; \
+      dyn=$(readelf -dW "$b"); \
+      case "$dyn" in *NEEDED*) echo "$b has dynamic dependencies"; exit 1;; esac; \
+    done; \
     ffmpeg -hide_banner -version | head -1; \
     ffprobe -hide_banner -version | head -1; \
     ffmpeg -hide_banner -f lavfi -i "sine=frequency=440:duration=1" -c:a libopus /tmp/o.opus -y >/dev/null 2>&1; \
