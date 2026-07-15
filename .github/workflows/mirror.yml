@@ -7,11 +7,20 @@ name: build
 #
 # The FFmpeg version is auto-detected from the official repo's release tags, so
 # new patch, minor AND major releases are built automatically — no edits needed.
-# Runs daily and self-skips when the resulting SHA256SUMS is unchanged.
+#
+# Builds are driven by change, not by the clock: a push that touches the build
+# inputs rebuilds immediately, while the daily cron only exists to notice new
+# upstream releases (which no push to this repo can announce). A scheduled run
+# that resolves to an already-published version skips the build entirely.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'linux/**'
+      - '.github/workflows/mirror.yml'
   schedule:
-    - cron: '17 5 * * *'   # daily; self-skips when nothing changed
+    - cron: '17 5 * * *'   # poll upstream; skips unless there's a new release
   workflow_dispatch:
     inputs:
       ffmpeg_tag:
@@ -30,6 +39,7 @@ jobs:
       ffmpeg_tag: ${{ steps.v.outputs.ffmpeg_tag }}
       version: ${{ steps.v.outputs.version }}
       btbn_branch: ${{ steps.v.outputs.btbn_branch }}
+      should_build: ${{ steps.gate.outputs.should_build }}
     steps:
       - name: Detect latest stable FFmpeg release
         id: v
@@ -54,8 +64,33 @@ jobs:
           echo "btbn_branch=$BTBN_BRANCH" >> "$GITHUB_OUTPUT"
           echo "Resolved FFmpeg $VERSION (tag $TAG; BtbN Windows branch $BTBN_BRANCH)"
 
+      # A push or a manual run means the build inputs themselves changed, so it
+      # always builds. The cron is only a poll for new upstream releases: when the
+      # resolved version is already published there is nothing to rebuild, and
+      # stopping here keeps toolchain drift from silently republishing a tag.
+      - name: Decide whether a build is needed
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "schedule" ]; then
+            echo "Event ${EVENT} — building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif gh release view "n${VERSION}" >/dev/null 2>&1; then
+            echo "n${VERSION} is already published — nothing to do."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "n${VERSION} is not published yet — building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   linux:
     needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -82,8 +117,14 @@ jobs:
           docker cp "$cid":/usr/local/bin/ffmpeg  "ffmpeg-${ARCH}"
           docker cp "$cid":/usr/local/bin/ffprobe "ffprobe-${ARCH}"
           docker rm "$cid" >/dev/null
-          file "ffmpeg-${ARCH}" | grep -q "statically linked" \
-            || { echo "not statically linked"; exit 1; }
+          # Re-assert on the extracted artifacts what the test stage asserted
+          # in-image; see linux/Dockerfile for why INTERP/NEEDED and not file(1).
+          for b in "ffmpeg-${ARCH}" "ffprobe-${ARCH}"; do
+            hdr=$(readelf -lW "$b")
+            case "$hdr" in *INTERP*) echo "$b needs a dynamic loader"; exit 1;; esac
+            dyn=$(readelf -dW "$b")
+            case "$dyn" in *NEEDED*) echo "$b has dynamic dependencies"; exit 1;; esac
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bin-${{ matrix.arch }}
@@ -94,6 +135,7 @@ jobs:
 
   windows:
     needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -125,8 +167,11 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  # Only main publishes: otherwise a workflow_dispatch on any branch would clobber
+  # the live release with binaries built from unreviewed code.
   release:
     needs: [resolve, linux, windows]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write       # create / edit the release
