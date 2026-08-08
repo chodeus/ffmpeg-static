@@ -114,19 +114,22 @@ jobs:
           WIN_AVAIL: ${{ steps.w.outputs.windows_available }}
         run: |
           set -euo pipefail
+          # All four, not just one: a partial upload must not read as complete, or
+          # the missing binaries are never restored. Subtraction matches on equality.
+          WANT='["ffmpeg-win64.exe","ffprobe-win64.exe","ffmpeg-winarm64.exe","ffprobe-winarm64.exe"]'
           BUILD=true
           if [ "$EVENT" != "schedule" ]; then
             echo "Event ${EVENT} — building."
           elif ! gh release view "n${VERSION}" >/dev/null 2>&1; then
             echo "n${VERSION} is not published yet — building."
           elif [ "$(gh release view "n${VERSION}" --json assets \
-                    --jq 'any(.assets[].name; . == "ffmpeg-win64.exe")')" = true ]; then
-            echo "n${VERSION} is published with Windows binaries — nothing to do."
+                    --jq "$WANT - [.assets[].name] | length == 0")" = true ]; then
+            echo "n${VERSION} is published with every Windows binary — nothing to do."
             BUILD=false
           elif [ "$WIN_AVAIL" = true ]; then
-            echo "n${VERSION} has no Windows binaries and BtbN now publishes ${BRANCH} — building to backfill."
+            echo "n${VERSION} is missing Windows binaries and BtbN publishes ${BRANCH} — building to backfill."
           else
-            echo "n${VERSION} has no Windows binaries and BtbN still has no ${BRANCH} build — nothing to do."
+            echo "n${VERSION} is missing Windows binaries and BtbN still has no ${BRANCH} build — nothing to do."
             BUILD=false
           fi
           echo "should_build=$BUILD" >> "$GITHUB_OUTPUT"
@@ -242,9 +245,15 @@ jobs:
   # the live release with binaries built from unreviewed code.
   release:
     needs: [resolve, linux, windows]
-    # Linux stays a hard gate; Windows is advisory, so a skipped or broken mirror
-    # cannot hold back the release. !cancelled() is what lets it run at all then.
-    if: ${{ !cancelled() && needs.linux.result == 'success' && github.ref == 'refs/heads/main' }}
+    # Linux is a hard gate. A *skipped* mirror (BtbN has no such branch) must not
+    # hold the release back, but a *failed* one must: publishing from a partial set
+    # would rewrite SHA256SUMS and the notes while the real Windows assets, which
+    # --clobber leaves untouched, stay attached to the release.
+    if: >-
+      ${{ !cancelled()
+          && needs.linux.result == 'success'
+          && (needs.windows.result == 'success' || needs.windows.result == 'skipped')
+          && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write       # create / edit the release
