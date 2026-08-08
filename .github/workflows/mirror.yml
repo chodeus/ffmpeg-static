@@ -8,10 +8,16 @@ name: build
 # The FFmpeg version is auto-detected from the official repo's release tags, so
 # new patch, minor AND major releases are built automatically — no edits needed.
 #
+# Linux and Windows ship independently. BtbN only publishes the branches in their
+# own build matrix and adds a new one weeks after upstream tags it, so a fresh
+# release goes out Linux-only and a later run backfills the Windows binaries into
+# that same release once they exist.
+#
 # Builds are driven by change, not by the clock: a push that touches the build
 # inputs rebuilds immediately, while the daily cron only exists to notice new
 # upstream releases (which no push to this repo can announce). A scheduled run
-# that resolves to an already-published version skips the build entirely.
+# with nothing new to add — no new version, no newly-available Windows build —
+# skips the build entirely.
 
 on:
   push:
@@ -44,6 +50,7 @@ jobs:
       ffmpeg_tag: ${{ steps.v.outputs.ffmpeg_tag }}
       version: ${{ steps.v.outputs.version }}
       btbn_branch: ${{ steps.v.outputs.btbn_branch }}
+      windows_available: ${{ steps.w.outputs.windows_available }}
       should_build: ${{ steps.gate.outputs.should_build }}
     steps:
       - name: Detect latest stable FFmpeg release
@@ -69,10 +76,33 @@ jobs:
           echo "btbn_branch=$BTBN_BRANCH" >> "$GITHUB_OUTPUT"
           echo "Resolved FFmpeg $VERSION (tag $TAG; BtbN Windows branch $BTBN_BRANCH)"
 
+      # Decide Windows availability here, from a positive check against BtbN's
+      # asset list — never by inferring it from a download or checksum error, so
+      # the mirror job below can keep treating every failure as fatal.
+      - name: Check whether BtbN publishes this branch yet
+        id: w
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.v.outputs.btbn_branch }}
+        run: |
+          set -euo pipefail
+          VL="${BRANCH#n}"
+          names=$(gh release view latest -R BtbN/FFmpeg-Builds --json assets --jq '.assets[].name')
+          avail=true
+          for plat in win64 winarm64; do
+            grep -qxF "ffmpeg-${BRANCH}-latest-${plat}-gpl-${VL}.zip" <<<"$names" || avail=false
+          done
+          echo "windows_available=$avail" >> "$GITHUB_OUTPUT"
+          if [ "$avail" = false ]; then
+            echo "::warning::BtbN publishes no ${BRANCH} Windows build yet — releases stay Linux-only until it appears."
+          fi
+          echo "BtbN ${BRANCH} Windows builds available: ${avail}"
+
       # A push or a manual run means the build inputs themselves changed, so it
-      # always builds. The cron is only a poll for new upstream releases: when the
-      # resolved version is already published there is nothing to rebuild, and
-      # stopping here keeps toolchain drift from silently republishing a tag.
+      # always builds. The cron is only a poll: it builds for a version that is
+      # not published yet, or to backfill Windows into a Linux-only release that
+      # BtbN can now supply. "Published" alone must not stop it — that would
+      # strand such a release with no Windows binaries forever.
       - name: Decide whether a build is needed
         id: gate
         env:
@@ -80,18 +110,26 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           VERSION: ${{ steps.v.outputs.version }}
+          BRANCH: ${{ steps.v.outputs.btbn_branch }}
+          WIN_AVAIL: ${{ steps.w.outputs.windows_available }}
         run: |
           set -euo pipefail
+          BUILD=true
           if [ "$EVENT" != "schedule" ]; then
             echo "Event ${EVENT} — building."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          elif gh release view "n${VERSION}" >/dev/null 2>&1; then
-            echo "n${VERSION} is already published — nothing to do."
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          else
+          elif ! gh release view "n${VERSION}" >/dev/null 2>&1; then
             echo "n${VERSION} is not published yet — building."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif [ "$(gh release view "n${VERSION}" --json assets \
+                    --jq 'any(.assets[].name; . == "ffmpeg-win64.exe")')" = true ]; then
+            echo "n${VERSION} is published with Windows binaries — nothing to do."
+            BUILD=false
+          elif [ "$WIN_AVAIL" = true ]; then
+            echo "n${VERSION} has no Windows binaries and BtbN now publishes ${BRANCH} — building to backfill."
+          else
+            echo "n${VERSION} has no Windows binaries and BtbN still has no ${BRANCH} build — nothing to do."
+            BUILD=false
           fi
+          echo "should_build=$BUILD" >> "$GITHUB_OUTPUT"
 
   linux:
     needs: resolve
@@ -164,9 +202,11 @@ jobs:
             ffprobe-${{ matrix.arch }}
           if-no-files-found: error
 
+  # Skipped, not failed, when BtbN has no build for this branch — resolve already
+  # confirmed the assets exist, so every failure below is a real one.
   windows:
     needs: resolve
-    if: needs.resolve.outputs.should_build == 'true'
+    if: needs.resolve.outputs.should_build == 'true' && needs.resolve.outputs.windows_available == 'true'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -202,7 +242,9 @@ jobs:
   # the live release with binaries built from unreviewed code.
   release:
     needs: [resolve, linux, windows]
-    if: github.ref == 'refs/heads/main'
+    # Linux stays a hard gate; Windows is advisory, so a skipped or broken mirror
+    # cannot hold back the release. !cancelled() is what lets it run at all then.
+    if: ${{ !cancelled() && needs.linux.result == 'success' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write       # create / edit the release
@@ -212,6 +254,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.resolve.outputs.version }}
+      BRANCH: ${{ needs.resolve.outputs.btbn_branch }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -232,7 +275,15 @@ jobs:
             echo
             echo "- **Linux** (\`linux64\`, \`linuxarm64\`): compiled fully-static from pinned"
             echo "  upstream source (runs on musl/Alpine and glibc). Audio-focused, **LGPL-3.0**."
-            echo "- **Windows** (\`win64\`, \`winarm64\`): mirrored from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), **GPL-3.0**."
+            # The Windows bullet is a licensing statement, so it only appears when
+            # the binaries it describes are actually attached.
+            if [ -e ffmpeg-win64.exe ]; then
+              echo "- **Windows** (\`win64\`, \`winarm64\`): mirrored from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), **GPL-3.0**."
+            else
+              echo "- **Windows**: not available yet — [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)"
+              echo "  does not publish \`${BRANCH}\` builds. They are added to this release"
+              echo "  automatically once it does."
+            fi
             echo
             echo "Verify with \`SHA256SUMS\`. Provenance + corresponding source: see [NOTICE.md](https://github.com/chodeus/ffmpeg-static/blob/main/NOTICE.md)."
           } > RELEASE_NOTES.md
