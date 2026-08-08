@@ -23,8 +23,11 @@ run self-skips when the resulting `SHA256SUMS` is unchanged.
 
 Every download is SHA-256 verified, and we publish our own `SHA256SUMS`.
 
-**Assets per release:** `ffmpeg` + `ffprobe` for `linux64`, `linuxarm64`,
-`win64`, `winarm64`, plus `SHA256SUMS`. No macOS build.
+**Assets per release:** `ffmpeg` + `ffprobe` for `linux64` and `linuxarm64`,
+plus `SHA256SUMS` — always. The `win64` and `winarm64` binaries are attached once
+[BtbN/FFmpeg-Builds][btbn] publishes the matching branch, which trails an upstream
+release by a few weeks, so a brand-new FFmpeg version ships Linux-first and gains
+its Windows binaries automatically in a later run. No macOS build.
 
 ## Licensing
 
