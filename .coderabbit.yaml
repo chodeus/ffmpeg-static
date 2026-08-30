@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# The Dockerfile IS the product here: a fully-static, LGPL-only ffmpeg built from
+# pinned, checksum-verified upstream source. Review it as supply chain, not config.
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_instructions:
+    - path: "linux/Dockerfile"
+      instructions: |-
+        This builds the published binary. The trust boundary is "official upstream source + this file", and every rule below exists to keep it there:
+        - Every source tarball must stay SHA-256 verified BEFORE it is unpacked or built. A new dependency added without a pinned version AND a pinned checksum widens the trust boundary — flag it. Never fetch a prebuilt third-party binary.
+        - The base image must stay pinned by digest (FROM alpine:x.y@sha256:...). A bare tag can be moved under you; the digest is the only thing that can't.
+        - LGPL boundary: only LGPL/BSD audio libraries may be linked. Flag --enable-gpl, --enable-nonfree, x264, x265, fdk-aac or any GPL-licensed library — the output is LGPL-3.0-or-later and NOTICE.md/COPYING.LGPL must stay accurate.
+        - The result must remain FULLY static (no ELF interpreter): consumers run it on musl (Alpine) and glibc alike. Anything adding a dynamic link, or a library whose build defaults to shared, breaks that and must be caught here.
+        - Don't pipe a remote script into a shell, and don't disable a verification step to make a build pass.
+        - Loosening an integrity guard (a checksum made optional, a commit pin made conditional, a version floor relaxed) is only safe if every downstream step that relied on it is audited in the same change — see the workflow instructions.
+    - path: ".github/workflows/**"
+      instructions: |-
+        Release + mirror automation — these publish artifacts consumers trust:
+        - ORPHANED INVARIANTS: when a step, gate, `needs:` or early-return that used to BLOCK becomes non-blocking, enumerate every downstream consumer that silently relied on it. Manifests, checksum files, asset lists and release notes are the usual casualties. This is the repeat defect in this repo.
+        - Enumerate allowed states positively (`== 'success' || == 'skipped'`), never by negation (`!= 'failure'`) — a third state slips through a negation. "Absent because unavailable" and "absent because broken" are different, and must not be conflated.
+        - Derive the asset list explicitly; never infer it from a download failure or a checksum error. A verification step must fail the job, not fall through to `|| true` without a following hard assertion.
+        - Re-assert on the EXTRACTED artifact what the test stage asserted on the built one — static linkage and encode/decode — so a repack can't silently substitute a different binary.
+        - Never echo a token or write one into a URL that gets logged. Pin third-party actions by commit SHA, not a tag.
+    - path: "renovate.json"
+      instructions: |-
+        Dependency automation for a build whose correctness is checksum-pinned:
+        - A version bump must bump its matching SHA-256 pin in the same change. A bumped version with a stale checksum fails the build; a bumped checksum with a stale version silently builds the wrong source.
+        - Automerge must not cover a base-image or toolchain major/runtime jump: green checks on a config-only PR do not prove the image still builds.
+    - path: "{NOTICE.md,COPYING.LGPL,LICENSE}"
+      instructions: |-
+        Licence surface:
+        - The attribution list must match the libraries actually linked in linux/Dockerfile. A library added or removed there without updating NOTICE.md is a compliance defect, not a docs nit.
+
+  tools:
+    gitleaks:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
