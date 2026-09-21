@@ -183,11 +183,8 @@ jobs:
           ./"ffmpeg-${ARCH}" -v error -xerror -nostdin -i /tmp/glibc.opus -map 0:a -f null -
           echo "RUNS-ON-GLIBC OK (${ARCH})"
 
-      # Fail the build (before the artifact upload that feeds the release job) on
-      # any *fixable* HIGH/CRITICAL in the test-stage image (Alpine base + binutils).
-      # ignore-unfixed skips OS CVEs with no upstream patch yet; the base image is
-      # pinned by digest above and kept current by Renovate, so a fixable finding
-      # here means bumping that pin.
+      # Runs before the upload that feeds release. linux/Dockerfile upgrades this image's
+      # packages at build time, so a fixable finding means that upgrade didn't take.
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
