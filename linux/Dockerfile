@@ -11,7 +11,7 @@
 
 # Pinned by digest (multi-arch manifest) so a moved 'alpine:3.21' tag can't
 # inject anything. Renovate keeps the digest current.
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS build
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
 
 # Pinned upstream versions.
 ARG FFMPEG_TAG=n8.1.2
@@ -105,7 +105,7 @@ RUN git clone --depth 1 --branch "${FFMPEG_TAG}" https://github.com/FFmpeg/FFmpe
 
 # --- Self-test on a CLEAN Alpine (musl, no build deps): proves the binary is
 #     fully static and actually runs with nothing else installed. ---
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS test
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS test
 COPY --from=build /opt/ffbuild/bin/ffmpeg /opt/ffbuild/bin/ffprobe /usr/local/bin/
 # Portability is asserted structurally rather than through file(1)'s wording: a
 # binary that needs no loader has no INTERP segment and no NEEDED entries. A
