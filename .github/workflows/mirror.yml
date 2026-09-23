@@ -25,11 +25,10 @@ on:
     paths:
       - 'linux/**'
       - '.github/workflows/mirror.yml'
+  # No paths filter: the linux jobs are meant to be required checks, and a
+  # filtered-out PR would never report them.
   pull_request:
     branches: [main]
-    paths:
-      - 'linux/**'
-      - '.github/workflows/mirror.yml'
   schedule:
     - cron: '17 5 * * *'   # poll upstream; skips unless there's a new release
   workflow_dispatch:
