@@ -1,4 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>chodeus/chodeus-ops"]
+  "extends": ["github>chodeus/chodeus-ops"],
+  "packageRules": [
+    {
+      "description": "Keep Dockerfile base-image digest bumps manual here. The preset auto-merges them where the image build is a required check; this repo's only required check is CodeQL and the build behind mirror.yml is not one, so a bad base would merge before it was ever built.",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": false
+    }
+  ]
 }
