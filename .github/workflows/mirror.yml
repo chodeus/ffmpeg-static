@@ -25,9 +25,8 @@ on:
     paths:
       - 'linux/**'
       - '.github/workflows/mirror.yml'
-  # No paths filter: the linux jobs are required checks, so every PR must
-  # report them. A PR that changes nothing under linux/ still builds and
-  # self-tests both binaries; that is the price of the gate, not a bug.
+  # No paths filter: the linux jobs are meant to be required checks, and a
+  # filtered-out PR would never report them.
   pull_request:
     branches: [main]
   schedule:
