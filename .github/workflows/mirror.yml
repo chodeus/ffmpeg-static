@@ -188,14 +188,14 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           # The action's default trivy trails its own releases; pin the scanner.
-          version: v0.75.0 # renovate: aquasecurity/trivy
+          version: v0.76.0 # renovate: aquasecurity/trivy
           image-ref: ffstatic:${{ matrix.arch }}
           format: table
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bin-${{ matrix.arch }}
           path: |
@@ -233,7 +233,7 @@ jobs:
             cp "$fp" "../out/ffprobe-${plat}.exe"
             echo "::endgroup::"
           done
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bin-windows
           path: out/*
@@ -263,7 +263,7 @@ jobs:
       VERSION: ${{ needs.resolve.outputs.version }}
       BRANCH: ${{ needs.resolve.outputs.btbn_branch }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: artifacts
       - name: Assemble, checksum and publish
