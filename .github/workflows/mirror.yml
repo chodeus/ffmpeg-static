@@ -253,6 +253,11 @@ jobs:
           && (needs.windows.result == 'success' || needs.windows.result == 'skipped')
           && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.pub.outputs.published }}
+      title: ${{ steps.pub.outputs.title }}
+      summary: ${{ steps.pub.outputs.summary }}
+      url: ${{ steps.pub.outputs.url }}
     permissions:
       contents: write       # create / edit the release
       id-token: write       # OIDC token for provenance signing
@@ -303,6 +308,7 @@ jobs:
               echo "published=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
+            ACTION=updated
             gh release upload "$TAG" ffmpeg-* ffprobe-* SHA256SUMS --clobber
             # Keep title/notes/latest accurate too (not just assets).
             gh release edit "$TAG" \
@@ -310,12 +316,23 @@ jobs:
               --notes-file RELEASE_NOTES.md \
               --latest
           else
+            ACTION=released
             gh release create "$TAG" ffmpeg-* ffprobe-* SHA256SUMS \
               --title "FFmpeg ${VERSION} (static)" \
               --notes-file RELEASE_NOTES.md \
               --latest
           fi
-          echo "published=true" >> "$GITHUB_OUTPUT"
+          if [ -e ffmpeg-win64.exe ]; then
+            platforms="Linux (linux64, linuxarm64) and Windows (win64, winarm64)"
+          else
+            platforms="Linux (linux64, linuxarm64); Windows is not available yet"
+          fi
+          {
+            echo "published=true"
+            echo "title=🚀 FFmpeg ${VERSION} (static) ${ACTION}"
+            echo "summary=${platforms}."
+            echo "url=${GITHUB_SERVER_URL}/${GH_REPO}/releases/tag/${TAG}"
+          } >> "$GITHUB_OUTPUT"
 
       # Cryptographic, verifiable proof that these exact binaries were built by
       # this workflow from this commit (SLSA provenance via Sigstore). Verify with:
@@ -329,3 +346,19 @@ jobs:
           subject-path: |
             out/ffmpeg-*
             out/ffprobe-*
+
+  # A published (or backfilled) release, or a failure on main. A run with nothing new posts nothing.
+  notify:
+    needs: [resolve, linux, windows, release]
+    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && ((needs.release.result == 'success' && needs.release.outputs.published == 'true') || contains(needs.*.result, 'failure')) }}
+    permissions: {}
+    uses: chodeus/chodeus-ops/.github/workflows/notify-discord.yml@cbd544d21103cfe854c8e0ec717ee2be4f097ad7 # main
+    with:
+      event_type: release
+      status: ${{ needs.release.result == 'success' && 'success' || 'failure' }}
+      title: "${{ needs.release.result == 'success' && needs.release.outputs.title || format('❌ FFmpeg static build failed: {0}', github.ref_name) }}"
+      description: ${{ needs.release.result == 'success' && needs.release.outputs.summary || '' }}
+      url: ${{ needs.release.result == 'success' && needs.release.outputs.url || '' }}
+      needs: ${{ toJSON(needs) }}
+    secrets:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
