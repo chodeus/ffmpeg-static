@@ -30,8 +30,9 @@ jobs:
         run: |
           set -euo pipefail
           updated=$(.github/scripts/codec-checksums.sh "origin/${BASE_REF}")
-          if [ -z "$updated" ]; then
-            echo "No codec version changed."
+          # Decide on the file, not the output: a PR whose checksums are already right reports versions but changes nothing.
+          if git diff --quiet -- linux/Dockerfile; then
+            echo "No checksum to update.${updated:+ Versions already current: $updated}"
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

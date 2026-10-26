@@ -22,7 +22,7 @@ ARG FFMPEG_TAG=n8.1.2
 ARG FFMPEG_COMMIT=38b88335f99e76ed89ff3c93f877fdefce736c13
 ARG FFMPEG_COMMIT_TAG=n8.1.2
 # Renovate bumps these; codec-checksums.yml then rewrites the matching *_SHA256 below.
-# renovate: datasource=repology depName=alpine_edge/lame versioning=loose
+# renovate: datasource=repology depName=alpine_edge/lame versioning=loose extractVersion=^(?<version>[^-]+)
 ARG LAME_VERSION=3.100
 # renovate: datasource=github-tags depName=xiph/ogg extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
 ARG OGG_VERSION=1.3.5
@@ -30,7 +30,7 @@ ARG OGG_VERSION=1.3.5
 ARG VORBIS_VERSION=1.3.7
 # renovate: datasource=github-tags depName=xiph/opus extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
 ARG OPUS_VERSION=1.5.2
-# renovate: datasource=repology depName=alpine_edge/opencore-amr versioning=loose
+# renovate: datasource=repology depName=alpine_edge/opencore-amr versioning=loose extractVersion=^(?<version>[^-]+)
 ARG OPENCORE_AMR_VERSION=0.1.6
 
 # SHA-256 of each source tarball (verified before building).
