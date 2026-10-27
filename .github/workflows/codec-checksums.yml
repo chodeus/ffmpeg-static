@@ -1,0 +1,61 @@
+name: Codec checksums
+
+# Renovate bumps a codec *_VERSION in linux/Dockerfile but can't recompute its *_SHA256; this commits it to the PR.
+on:
+  pull_request:
+    branches: [main]
+    paths: ['linux/Dockerfile']
+
+permissions:
+  contents: read
+
+jobs:
+  checksums:
+    # Same-repo Renovate branches only; a fork PR's token can't push, and nothing else should be rewritten.
+    if: startsWith(github.head_ref, 'renovate/') && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the checksum commit
+      actions: write    # re-run the required checks on it
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Recompute checksums for changed versions
+        id: sums
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          updated=$(.github/scripts/codec-checksums.sh "origin/${BASE_REF}")
+          # Decide on the file, not the output: a PR whose checksums are already right reports versions but changes nothing.
+          if git diff --quiet -- linux/Dockerfile; then
+            echo "No checksum to update.${updated:+ Versions already current: $updated}"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$updated"
+          {
+            echo "changed=true"
+            echo "summary<<EOF"
+            echo "$updated"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # A push made with GITHUB_TOKEN starts no workflow, so the required checks are dispatched by hand.
+      - name: Commit and re-run the required checks
+        if: steps.sums.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          SUMMARY: ${{ steps.sums.outputs.summary }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -q -am "chore(deps): update codec checksums" -m "$SUMMARY"
+          git push origin "HEAD:${HEAD_REF}"
+          gh workflow run mirror.yml --ref "$HEAD_REF"
+          gh workflow run codeql.yml --ref "$HEAD_REF"
