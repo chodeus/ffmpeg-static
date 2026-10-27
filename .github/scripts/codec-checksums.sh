@@ -6,6 +6,9 @@ set -euo pipefail
 dockerfile=linux/Dockerfile
 base=${1:?usage: codec-checksums.sh <base-ref>}
 base_file=$(git show "${base}:${dockerfile}")
+# To a file, not a pipe: curl truncates a file before a retry, but would append to a pipe.
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
 
 while IFS='=' read -r var ver; do
   lib=${var%_VERSION}
@@ -19,11 +22,8 @@ while IFS='=' read -r var ver; do
     exit 1
   fi
   url=${template//"\${${var}}"/$ver}
-  # To a file, not a pipe: curl can truncate a file before a retry, but would append to a pipe.
-  tmp=$(mktemp)
   curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors -o "$tmp" "$url"
   sha=$(sha256sum "$tmp" | cut -d' ' -f1)
-  rm -f "$tmp"
 
   sed "s/^ARG ${lib}_SHA256=.*/ARG ${lib}_SHA256=${sha}/" "$dockerfile" > "${dockerfile}.tmp"
   mv "${dockerfile}.tmp" "$dockerfile"
