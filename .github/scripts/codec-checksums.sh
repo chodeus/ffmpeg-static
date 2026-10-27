@@ -19,7 +19,7 @@ while IFS='=' read -r var ver; do
     exit 1
   fi
   url=${template//"\${${var}}"/$ver}
-  sha=$(curl -fsSL --retry 3 "$url" | sha256sum | cut -d' ' -f1)
+  sha=$(curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$url" | sha256sum | cut -d' ' -f1)
 
   sed "s/^ARG ${lib}_SHA256=.*/ARG ${lib}_SHA256=${sha}/" "$dockerfile" > "${dockerfile}.tmp"
   mv "${dockerfile}.tmp" "$dockerfile"

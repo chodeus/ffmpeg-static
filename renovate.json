@@ -1,5 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["github>chodeus/chodeus-ops"],
-  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"]
+  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "actionlint's tag and the commit it points at in validate-workflows.yml; the install script is fetched by that commit.",
+      "managerFilePatterns": ["/^\\.github/workflows/validate-workflows\\.yml$/"],
+      "matchStrings": [
+        "ACTIONLINT_VERSION:\\s*(?<currentValue>v[^\\s]+)\\s+ACTIONLINT_COMMIT:\\s*(?<currentDigest>[a-f0-9]{40})"
+      ],
+      "datasourceTemplate": "github-tags",
+      "depNameTemplate": "rhysd/actionlint"
+    }
+  ]
 }
