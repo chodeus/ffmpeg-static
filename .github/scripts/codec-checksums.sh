@@ -19,7 +19,11 @@ while IFS='=' read -r var ver; do
     exit 1
   fi
   url=${template//"\${${var}}"/$ver}
-  sha=$(curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$url" | sha256sum | cut -d' ' -f1)
+  # To a file, not a pipe: curl can truncate a file before a retry, but would append to a pipe.
+  tmp=$(mktemp)
+  curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors -o "$tmp" "$url"
+  sha=$(sha256sum "$tmp" | cut -d' ' -f1)
+  rm -f "$tmp"
 
   sed "s/^ARG ${lib}_SHA256=.*/ARG ${lib}_SHA256=${sha}/" "$dockerfile" > "${dockerfile}.tmp"
   mv "${dockerfile}.tmp" "$dockerfile"

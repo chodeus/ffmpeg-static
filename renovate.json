@@ -5,12 +5,12 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "actionlint's tag and the commit it points at in validate-workflows.yml; the install script is fetched by that commit.",
+      "description": "actionlint's release tag and tarball SHA-256 in validate-workflows.yml; Renovate takes the same asset's hash from the new release.",
       "managerFilePatterns": ["/^\\.github/workflows/validate-workflows\\.yml$/"],
       "matchStrings": [
-        "ACTIONLINT_VERSION:\\s*(?<currentValue>v[^\\s]+)\\s+ACTIONLINT_COMMIT:\\s*(?<currentDigest>[a-f0-9]{40})"
+        "ACTIONLINT_VERSION:\\s*(?<currentValue>v[^\\s]+)\\s+ACTIONLINT_SHA256:\\s*(?<currentDigest>[a-f0-9]{64})"
       ],
-      "datasourceTemplate": "github-tags",
+      "datasourceTemplate": "github-release-attachments",
       "depNameTemplate": "rhysd/actionlint"
     }
   ]
