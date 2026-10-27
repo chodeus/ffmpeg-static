@@ -1,5 +1,16 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["github>chodeus/chodeus-ops"],
-  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"]
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "actionlint's release tag and tarball SHA-256 in validate-workflows.yml; Renovate takes the same asset's hash from the new release.",
+      "managerFilePatterns": ["/^\\.github/workflows/validate-workflows\\.yml$/"],
+      "matchStrings": [
+        "ACTIONLINT_VERSION:\\s*(?<currentValue>v[^\\s]+)\\s+ACTIONLINT_SHA256:\\s*(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "github-release-attachments",
+      "depNameTemplate": "rhysd/actionlint"
+    }
+  ]
 }

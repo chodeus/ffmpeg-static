@@ -52,35 +52,35 @@ WORKDIR /src
 # Usage handled inline per-library below.
 
 # --- libmp3lame (LGPL) — MP3 encoding ---
-RUN curl -fsSL "https://downloads.sourceforge.net/project/lame/lame/${LAME_VERSION}/lame-${LAME_VERSION}.tar.gz" -o lame.tar.gz \
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "https://downloads.sourceforge.net/project/lame/lame/${LAME_VERSION}/lame-${LAME_VERSION}.tar.gz" -o lame.tar.gz \
  && echo "${LAME_SHA256}  lame.tar.gz" | sha256sum -c - \
  && tar xf lame.tar.gz && cd "lame-${LAME_VERSION}" \
  && ./configure --prefix="${PREFIX}" --enable-static --disable-shared --disable-frontend \
  && make -j"$(nproc)" && make install
 
 # --- libogg (BSD) — container for Vorbis ---
-RUN curl -fsSL "https://downloads.xiph.org/releases/ogg/libogg-${OGG_VERSION}.tar.xz" -o ogg.tar.xz \
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "https://downloads.xiph.org/releases/ogg/libogg-${OGG_VERSION}.tar.xz" -o ogg.tar.xz \
  && echo "${OGG_SHA256}  ogg.tar.xz" | sha256sum -c - \
  && tar xf ogg.tar.xz && cd "libogg-${OGG_VERSION}" \
  && ./configure --prefix="${PREFIX}" --enable-static --disable-shared \
  && make -j"$(nproc)" && make install
 
 # --- libvorbis (BSD) — Vorbis encoding ---
-RUN curl -fsSL "https://downloads.xiph.org/releases/vorbis/libvorbis-${VORBIS_VERSION}.tar.xz" -o vorbis.tar.xz \
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "https://downloads.xiph.org/releases/vorbis/libvorbis-${VORBIS_VERSION}.tar.xz" -o vorbis.tar.xz \
  && echo "${VORBIS_SHA256}  vorbis.tar.xz" | sha256sum -c - \
  && tar xf vorbis.tar.xz && cd "libvorbis-${VORBIS_VERSION}" \
  && ./configure --prefix="${PREFIX}" --enable-static --disable-shared \
  && make -j"$(nproc)" && make install
 
 # --- libopus (BSD) — Opus encoding/decoding ---
-RUN curl -fsSL "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" -o opus.tar.gz \
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" -o opus.tar.gz \
  && echo "${OPUS_SHA256}  opus.tar.gz" | sha256sum -c - \
  && tar xf opus.tar.gz && cd "opus-${OPUS_VERSION}" \
  && ./configure --prefix="${PREFIX}" --enable-static --disable-shared \
  && make -j"$(nproc)" && make install
 
 # --- opencore-amr (Apache-2.0) — AMR-NB encoding (Sleezer AMR target) ---
-RUN curl -fsSL "https://downloads.sourceforge.net/opencore-amr/opencore-amr-${OPENCORE_AMR_VERSION}.tar.gz" -o amr.tar.gz \
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "https://downloads.sourceforge.net/opencore-amr/opencore-amr-${OPENCORE_AMR_VERSION}.tar.gz" -o amr.tar.gz \
  && echo "${OPENCORE_AMR_SHA256}  amr.tar.gz" | sha256sum -c - \
  && tar xf amr.tar.gz && cd "opencore-amr-${OPENCORE_AMR_VERSION}" \
  && ./configure --prefix="${PREFIX}" --enable-static --disable-shared \
