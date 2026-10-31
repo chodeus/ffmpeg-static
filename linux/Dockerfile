@@ -29,7 +29,7 @@ ARG OGG_VERSION=1.3.5
 # renovate: datasource=github-tags depName=xiph/vorbis extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
 ARG VORBIS_VERSION=1.3.7
 # renovate: datasource=github-tags depName=xiph/opus extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
-ARG OPUS_VERSION=1.5.2
+ARG OPUS_VERSION=1.6.1
 # renovate: datasource=repology depName=alpine_edge/opencore-amr versioning=loose extractVersion=^(?<version>[^-]+)
 ARG OPENCORE_AMR_VERSION=0.1.6
 
