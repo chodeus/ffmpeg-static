@@ -25,7 +25,7 @@ ARG FFMPEG_COMMIT_TAG=n8.1.2
 # renovate: datasource=repology depName=alpine_edge/lame versioning=loose extractVersion=^(?<version>[^-]+)
 ARG LAME_VERSION=3.100
 # renovate: datasource=github-tags depName=xiph/ogg extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
-ARG OGG_VERSION=1.3.5
+ARG OGG_VERSION=1.3.6
 # renovate: datasource=github-tags depName=xiph/vorbis extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
 ARG VORBIS_VERSION=1.3.7
 # renovate: datasource=github-tags depName=xiph/opus extractVersion=^v(?<version>\d+\.\d+(?:\.\d+)?)$
