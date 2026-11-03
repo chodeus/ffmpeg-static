@@ -267,6 +267,9 @@ jobs:
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.resolve.outputs.version }}
       BRANCH: ${{ needs.resolve.outputs.btbn_branch }}
+      EVENT: ${{ github.event_name }}
+      # Commit text is untrusted: read it from env, never interpolate it into the script.
+      HEAD_MSG: ${{ github.event.head_commit.message }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -327,10 +330,22 @@ jobs:
           else
             platforms="Linux (linux64, linuxarm64); Windows is not available yet"
           fi
+          # An update keeps the version, so say what changed. The cron only updates to backfill Windows.
+          reason=""
+          if [ "$ACTION" = updated ]; then
+            case "$EVENT" in
+              push)
+                subject="${HEAD_MSG%%$'\n'*}"
+                subject=$(sed -E 's/\r$//; s/^[a-z]+(\([^)]*\))?!?: //' <<< "$subject")
+                reason="Rebuilt after: ${subject:-a push to main}. " ;;
+              schedule) reason="Windows binaries added. " ;;
+              *) reason="Rebuilt by hand. " ;;
+            esac
+          fi
           {
             echo "published=true"
             echo "title=🚀 FFmpeg ${VERSION} (static) ${ACTION}"
-            echo "summary=${platforms}."
+            echo "summary=${reason}${platforms}."
             echo "url=${GITHUB_SERVER_URL}/${GH_REPO}/releases/tag/${TAG}"
           } >> "$GITHUB_OUTPUT"
 
