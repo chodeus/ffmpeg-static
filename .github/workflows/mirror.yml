@@ -312,6 +312,7 @@ jobs:
               exit 0
             fi
             ACTION=updated
+            had_win=$(gh release view "$TAG" --json assets --jq 'any(.assets[]; .name == "ffmpeg-win64.exe")' 2>/dev/null) || had_win=unknown
             gh release upload "$TAG" ffmpeg-* ffprobe-* SHA256SUMS --clobber
             # Keep title/notes/latest accurate too (not just assets).
             gh release edit "$TAG" \
@@ -330,7 +331,7 @@ jobs:
           else
             platforms="Linux (linux64, linuxarm64); Windows is not available yet"
           fi
-          # An update keeps the version, so say what changed. The cron only updates to backfill Windows.
+          # An update keeps the version, so say what changed.
           reason=""
           if [ "$ACTION" = updated ]; then
             case "$EVENT" in
@@ -338,7 +339,12 @@ jobs:
                 subject="${HEAD_MSG%%$'\n'*}"
                 subject=$(sed -E 's/\r$//; s/^[a-z]+(\([^)]*\))?!?: //' <<< "$subject")
                 reason="Rebuilt after: ${subject:-a push to main}. " ;;
-              schedule) reason="Windows binaries added. " ;;
+              schedule)
+                if [ "$had_win" = false ] && [ -e ffmpeg-win64.exe ]; then
+                  reason="Windows binaries added. "
+                else
+                  reason="Scheduled rebuild. "
+                fi ;;
               *) reason="Rebuilt by hand. " ;;
             esac
           fi
