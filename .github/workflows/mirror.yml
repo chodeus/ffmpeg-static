@@ -42,6 +42,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Every Windows binary a complete release carries; the backfill gate and the notice both check all four.
+  WINDOWS_ASSETS: '["ffmpeg-win64.exe","ffprobe-win64.exe","ffmpeg-winarm64.exe","ffprobe-winarm64.exe"]'
+
 jobs:
   resolve:
     runs-on: ubuntu-latest
@@ -115,14 +119,13 @@ jobs:
           set -euo pipefail
           # All four, not just one: a partial upload must not read as complete, or
           # the missing binaries are never restored. Subtraction matches on equality.
-          WANT='["ffmpeg-win64.exe","ffprobe-win64.exe","ffmpeg-winarm64.exe","ffprobe-winarm64.exe"]'
           BUILD=true
           if [ "$EVENT" != "schedule" ]; then
             echo "Event ${EVENT} — building."
           elif ! gh release view "n${VERSION}" >/dev/null 2>&1; then
             echo "n${VERSION} is not published yet — building."
           elif [ "$(gh release view "n${VERSION}" --json assets \
-                    --jq "$WANT - [.assets[].name] | length == 0")" = true ]; then
+                    --jq "$WINDOWS_ASSETS - [.assets[].name] | length == 0")" = true ]; then
             echo "n${VERSION} is published with every Windows binary — nothing to do."
             BUILD=false
           elif [ "$WIN_AVAIL" = true ]; then
@@ -267,6 +270,9 @@ jobs:
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.resolve.outputs.version }}
       BRANCH: ${{ needs.resolve.outputs.btbn_branch }}
+      EVENT: ${{ github.event_name }}
+      # Commit text is untrusted: read it from env, never interpolate it into the script.
+      HEAD_MSG: ${{ github.event.head_commit.message }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -309,6 +315,7 @@ jobs:
               exit 0
             fi
             ACTION=updated
+            had_all_win=$(gh release view "$TAG" --json assets --jq "$WINDOWS_ASSETS - [.assets[].name] | length == 0" 2>/dev/null) || had_all_win=unknown
             gh release upload "$TAG" ffmpeg-* ffprobe-* SHA256SUMS --clobber
             # Keep title/notes/latest accurate too (not just assets).
             gh release edit "$TAG" \
@@ -327,10 +334,27 @@ jobs:
           else
             platforms="Linux (linux64, linuxarm64); Windows is not available yet"
           fi
+          # An update keeps the version, so say what changed.
+          reason=""
+          if [ "$ACTION" = updated ]; then
+            case "$EVENT" in
+              push)
+                subject="${HEAD_MSG%%$'\n'*}"
+                subject=$(sed -E 's/\r$//; s/^[a-z]+(\([^)]*\))?!?: //' <<< "$subject")
+                reason="Rebuilt after: ${subject:-a push to main}. " ;;
+              schedule)
+                if [ "$had_all_win" = false ] && [ -e ffmpeg-win64.exe ]; then
+                  reason="Windows binaries added. "
+                else
+                  reason="Scheduled rebuild. "
+                fi ;;
+              *) reason="Rebuilt by hand. " ;;
+            esac
+          fi
           {
             echo "published=true"
             echo "title=🚀 FFmpeg ${VERSION} (static) ${ACTION}"
-            echo "summary=${platforms}."
+            echo "summary=${reason}${platforms}."
             echo "url=${GITHUB_SERVER_URL}/${GH_REPO}/releases/tag/${TAG}"
           } >> "$GITHUB_OUTPUT"
 
