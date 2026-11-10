@@ -35,6 +35,12 @@ reviews:
         - Derive the asset list explicitly; never infer it from a download failure or a checksum error. A verification step must fail the job, not fall through to `|| true` without a following hard assertion.
         - Re-assert on the EXTRACTED artifact what the test stage asserted on the built one — static linkage and encode/decode — so a repack can't silently substitute a different binary.
         - Never echo a token or write one into a URL that gets logged. Pin third-party actions by commit SHA, not a tag.
+    - path: ".github/scripts/codec-checksums.sh"
+      instructions: |-
+        Rewrites a library's SHA-256 pin in linux/Dockerfile when its version is bumped — it decides what the build will trust:
+        - Only a library whose version differs from the base ref is re-hashed. An unchanged version keeps its pin, so a tarball swapped upstream still fails the build's sha256sum -c. Flag anything that re-hashes more than that.
+        - The hash comes from a complete download of the URL the Dockerfile itself uses for that version. A failed or truncated download must stop the script, never produce a pin, and a bumped version with no download URL is an error, not a skip.
+        - The Dockerfile is replaced in one step (write a temp file, then move it), so a failure never leaves it half rewritten.
     - path: "renovate.json"
       instructions: |-
         Dependency automation for a build whose correctness is checksum-pinned:
