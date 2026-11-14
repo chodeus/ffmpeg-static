@@ -11,7 +11,7 @@
 
 # Pinned by digest (multi-arch manifest) so a moved 'alpine:3.21' tag can't
 # inject anything. Renovate keeps the digest current.
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS build
 
 # Pinned upstream versions.
 ARG FFMPEG_TAG=n8.1.2
@@ -111,7 +111,7 @@ RUN git clone --depth 1 --branch "${FFMPEG_TAG}" https://github.com/FFmpeg/FFmpe
 
 # --- Self-test on a CLEAN Alpine (musl, no build deps): proves the binary is
 #     fully static and actually runs with nothing else installed. ---
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS test
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS test
 # The digest-pinned base lags Alpine's package fixes, and mirror.yml gates the
 # release on a scan of this image. Test stage only — nothing here ships.
 RUN apk upgrade --no-cache
